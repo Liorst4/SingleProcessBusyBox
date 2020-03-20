@@ -166,7 +166,6 @@ void FAST_FUNC bb_show_usage(void)
 			dealloc_usage_messages((char*)usage_string);
 #endif
 	}
-	xfunc_die();
 }
 
 int FAST_FUNC find_applet_by_name(const char *name)
@@ -990,6 +989,7 @@ void FAST_FUNC run_applet_no_and_exit(int applet_no, const char *name, char **ar
 			/* Make "foo --help" exit with 0: */
 			xfunc_error_retval = 0;
 			bb_show_usage();
+			return;
 		}
 	}
 	if (ENABLE_FEATURE_SUID)
