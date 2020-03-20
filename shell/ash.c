@@ -5303,23 +5303,8 @@ forkparent(struct job *jp, union node *n, int mode, pid_t pid)
 static int
 forkshell(struct job *jp, union node *n, int mode)
 {
-	int pid;
-
-	TRACE(("forkshell(%%%d, %p, %d) called\n", jobno(jp), n, mode));
-	pid = fork();
-	if (pid < 0) {
-		TRACE(("Fork failed, errno=%d", errno));
-		if (jp)
-			freejob(jp);
-		ash_msg_and_raise_perror("can't fork");
-	}
-	if (pid == 0) {
-		CLEAR_RANDOM_T(&random_gen); /* or else $RANDOM repeats in child */
-		forkchild(jp, n, mode);
-	} else {
-		forkparent(jp, n, mode, pid);
-	}
-	return pid;
+  full_write2_str("ash tried to fork. nothing happend\n");
+  return 0;
 }
 
 /*
@@ -8114,48 +8099,11 @@ tryexec(IF_FEATURE_SH_STANDALONE(int applet_no,) const char *cmd, char **argv, c
 			popredir(/*drop:*/ 1);
 			run_noexec_applet_and_exit(applet_no, cmd, argv);
 		}
-		/* re-exec ourselves with the new arguments */
-		execve(bb_busybox_exec_path, argv, envp);
-		/* If they called chroot or otherwise made the binary no longer
-		 * executable, fall through */
+		else {
+		  full_write2_str("applet does not support NOEXEC\n");
+		}
 	}
 #endif
-
- repeat:
-#ifdef SYSV
-	do {
-		execve(cmd, argv, envp);
-	} while (errno == EINTR);
-#else
-	execve(cmd, argv, envp);
-#endif
-
-	if (cmd != bb_busybox_exec_path && errno == ENOEXEC) {
-		/* Run "cmd" as a shell script:
-		 * http://pubs.opengroup.org/onlinepubs/9699919799/utilities/V3_chap02.html
-		 * "If the execve() function fails with ENOEXEC, the shell
-		 * shall execute a command equivalent to having a shell invoked
-		 * with the command name as its first operand,
-		 * with any remaining arguments passed to the new shell"
-		 *
-		 * That is, do not use $SHELL, user's shell, or /bin/sh;
-		 * just call ourselves.
-		 *
-		 * Note that bash reads ~80 chars of the file, and if it sees
-		 * a zero byte before it sees newline, it doesn't try to
-		 * interpret it, but fails with "cannot execute binary file"
-		 * message and exit code 126. For one, this prevents attempts
-		 * to interpret foreign ELF binaries as shell scripts.
-		 */
-		argv[0] = (char*) cmd;
-		cmd = bb_busybox_exec_path;
-		/* NB: this is only possible because all callers of shellexec()
-		 * ensure that the argv[-1] slot exists!
-		 */
-		argv--;
-		argv[0] = (char*) "ash";
-		goto repeat;
-	}
 }
 
 /*
@@ -8163,7 +8111,6 @@ tryexec(IF_FEATURE_SH_STANDALONE(int applet_no,) const char *cmd, char **argv, c
  * have to change the find_command routine as well.
  * argv[-1] must exist and be writable! See tryexec() for why.
  */
-static void shellexec(char *prog, char **argv, const char *path, int idx) NORETURN;
 static void shellexec(char *prog, char **argv, const char *path, int idx)
 {
 	char *cmdname;
@@ -8179,16 +8126,9 @@ static void shellexec(char *prog, char **argv, const char *path, int idx)
 #endif
 	) {
 		tryexec(IF_FEATURE_SH_STANDALONE(applet_no,) prog, argv, envp);
-		if (applet_no >= 0) {
-			/* We tried execing ourself, but it didn't work.
-			 * Maybe /proc/self/exe doesn't exist?
-			 * Try $PATH search.
-			 */
-			goto try_PATH;
-		}
 		e = errno;
+		return;
 	} else {
- try_PATH:
 		e = ENOENT;
 		while (padvance(&path, argv[0]) >= 0) {
 			cmdname = stackblock();
@@ -8215,7 +8155,6 @@ static void shellexec(char *prog, char **argv, const char *path, int idx)
 	exitstatus = exerrno;
 	TRACE(("shellexec failed for %s, errno %d, suppress_int %d\n",
 		prog, e, suppress_int));
-	ash_msg_and_raise(EXEND, "%s: %s", prog, errmsg(e, "not found"));
 	/* NOTREACHED */
 }
 
@@ -9897,7 +9836,7 @@ execcmd(int argc UNUSED_PARAM, char **argv)
 		if (optionarg)
 			argv[0] = optionarg;
 		shellexec(prog, argv, pathval(), 0);
-		/* NOTREACHED */
+		return 0;
 	}
 	return 0;
 }
@@ -10375,7 +10314,7 @@ evalcommand(union node *cmd, int flags)
 			/* fall through to exec'ing external program */
 		}
 		shellexec(argv[0], argv, path, cmdentry.u.index);
-		/* NOTREACHED */
+		return;
 	} /* default */
 	case CMDBUILTIN:
 		if (evalbltin(cmdentry.u.cmd, argc, argv, flags)

@@ -996,12 +996,12 @@ void FAST_FUNC run_applet_no_and_exit(int applet_no, const char *name, char **ar
 		check_suid(applet_no);
 	xfunc_error_retval = applet_main[applet_no](argc, argv);
 	/* Note: applet_main() may also not return (die on a xfunc or such) */
-	xfunc_die();
+	return;
 }
 # endif /* NUM_APPLETS > 0 */
 
 # if ENABLE_BUSYBOX || NUM_APPLETS > 0
-static NORETURN void run_applet_and_exit(const char *name, char **argv)
+static void run_applet_and_exit(const char *name, char **argv)
 {
 #  if ENABLE_BUSYBOX
 	if (is_prefixed_with(name, "busybox"))
@@ -1013,6 +1013,7 @@ static NORETURN void run_applet_and_exit(const char *name, char **argv)
 		int applet = find_applet_by_name(name);
 		if (applet >= 0)
 			run_applet_no_and_exit(applet, name, argv);
+		return;
 	}
 #  endif
 
@@ -1020,7 +1021,7 @@ static NORETURN void run_applet_and_exit(const char *name, char **argv)
 	full_write2_str(applet_name);
 	full_write2_str(": applet not found\n");
 	/* POSIX: "If a command is not found, the exit status shall be 127" */
-	exit(127);
+	return;
 }
 # endif
 
