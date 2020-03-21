@@ -27,7 +27,7 @@
 //config:	help
 //config:	Display nonprinting characters as escape sequences
 
-//applet:IF_CAT(APPLET(cat, BB_DIR_BIN, BB_SUID_DROP))
+//applet:IF_CAT(APPLET_NOEXEC(cat, cat, BB_DIR_BIN, BB_SUID_DROP, cat))
 
 //kbuild:lib-$(CONFIG_CAT) += cat.o
 
