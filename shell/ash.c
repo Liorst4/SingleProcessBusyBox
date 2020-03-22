@@ -9444,64 +9444,109 @@ expredir(union node *n)
 static int
 evalpipe(union node *n, int flags)
 {
-	struct job *jp;
+#define PIPE_READ_END 0
+#define PIPE_WRITE_END 1
+
 	struct nodelist *lp;
-	int pipelen;
-	int prevfd;
-	int pip[2];
-	int status = 0;
+        int last_pipe_pair[2] = {-1, -1};
+        int stdin_backup = -1;
+        int stdout_backup = -1;
+        int status = 0;
 
 	TRACE(("evalpipe(0x%lx) called\n", (long)n));
-	pipelen = 0;
-	for (lp = n->npipe.cmdlist; lp; lp = lp->next)
-		pipelen++;
-	flags |= EV_EXIT;
+
+	if (NULL == n->npipe.cmdlist->next) {
+	  return EINVAL;
+	}
+
+        stdin_backup = dup(STDIN_FILENO);
+        if (-1 == stdin_backup) {
+	  return errno;
+        }
+        stdout_backup = dup(STDOUT_FILENO);
+        if (-1 == stdout_backup) {
+	  status = errno;
+	  goto cleanup;
+        }
+
 	INT_OFF;
 	if (n->npipe.pipe_backgnd == 0)
 		get_tty_state();
-	jp = makejob(/*n,*/ pipelen);
-	prevfd = -1;
-	for (lp = n->npipe.cmdlist; lp; lp = lp->next) {
+
+        for (lp = n->npipe.cmdlist; lp; lp = lp->next) {
+		const int first = (lp == n->npipe.cmdlist);
+		const int last = (NULL == lp->next);
+		int current_pipe_pair[2] = {-1, -1};
 		prehash(lp->n);
-		pip[1] = -1;
-		if (lp->next) {
-			if (pipe(pip) < 0) {
-				close(prevfd);
-				ash_msg_and_raise_perror("can't create pipe");
-			}
+		INT_ON;
+
+		if (!last) {
+		    // Create stdout for this command and stdin for the next command.
+		    if (-1 == pipe2(current_pipe_pair, O_NONBLOCK)) {
+		      status = errno;
+		      goto cleanup;
+		    }
 		}
-		if (forkshell(jp, lp->n, n->npipe.pipe_backgnd) == 0) {
-			/* child */
-			INT_ON;
-			if (pip[1] >= 0) {
-				close(pip[0]);
-			}
-			if (prevfd > 0) {
-				dup2(prevfd, 0);
-				close(prevfd);
-			}
-			if (pip[1] > 1) {
-				dup2(pip[1], 1);
-				close(pip[1]);
-			}
-			evaltreenr(lp->n, flags);
-			/* never returns */
+
+		if (!first) {
+		  // Use pipe from previous command as stdin.
+                  if (-1 == dup2(last_pipe_pair[PIPE_READ_END], STDIN_FILENO)) {
+		    status = errno;
+		    goto cleanup;
+                  }
 		}
-		/* parent */
-		if (prevfd >= 0)
-			close(prevfd);
-		prevfd = pip[0];
-		/* Don't want to trigger debugging */
-		if (pip[1] != -1)
-			close(pip[1]);
-	}
-	if (n->npipe.pipe_backgnd == 0) {
-		status = waitforjob(jp);
-		TRACE(("evalpipe:  job done exit status %d\n", status));
-	}
+
+
+		{
+		    // Update stdout.
+		    const int current_stdout = (!last) ? current_pipe_pair[PIPE_WRITE_END] : stdout_backup;
+		    if (-1 == dup2(current_stdout, STDOUT_FILENO)) {
+		      status = errno;
+		      goto cleanup;
+		    }
+		}
+
+		evaltree(lp->n, flags);
+
+		if (!first) {
+		    close(last_pipe_pair[PIPE_READ_END]);
+		    close(last_pipe_pair[PIPE_WRITE_END]);
+		    if (last) {
+		      last_pipe_pair[PIPE_READ_END] = -1;
+		      last_pipe_pair[PIPE_WRITE_END] = -1;
+		    }
+                }
+		if (!last) {
+		    last_pipe_pair[PIPE_READ_END] = current_pipe_pair[PIPE_READ_END];
+		    last_pipe_pair[PIPE_WRITE_END] = current_pipe_pair[PIPE_WRITE_END];
+		}
+        }
 	INT_ON;
 
-	return status;
+
+ cleanup:
+	if (-1 != last_pipe_pair[PIPE_READ_END]) {
+	  close(last_pipe_pair[PIPE_READ_END]);
+	}
+
+	if (-1 != last_pipe_pair[PIPE_WRITE_END]) {
+	  close(last_pipe_pair[PIPE_WRITE_END]);
+	}
+
+	if (-1 != stdout_backup) {
+	  dup2(stdout_backup, STDOUT_FILENO); // Not much we can do if it fails.
+	  close(stdout_backup);
+	}
+
+	if (-1 != stdin_backup) {
+	  dup2(stdin_backup, STDIN_FILENO); // Not much we can do if it fails.
+	  close(stdin_backup);
+	}
+
+        return status;
+
+#undef PIPE_READ_END
+#undef PIPE_WRITE_END
 }
 
 /* setinteractive needs this forward reference */
