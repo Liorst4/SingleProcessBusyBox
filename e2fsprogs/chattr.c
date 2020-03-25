@@ -63,6 +63,7 @@ static unsigned long get_flag(char c)
 	if (fp)
 		return e2attr_flags_value_chattr[fp - e2attr_flags_sname_chattr];
 	bb_show_usage();
+	return 0;
 }
 
 static char** decode_arg(char **argv, struct globals *gp)

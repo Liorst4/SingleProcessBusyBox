@@ -10359,7 +10359,7 @@ evalcommand(union node *cmd, int flags)
 			/* fall through to exec'ing external program */
 		}
 		shellexec(argv[0], argv, path, cmdentry.u.index);
-		return;
+		return 0;
 	} /* default */
 	case CMDBUILTIN:
 		if (evalbltin(cmdentry.u.cmd, argc, argv, flags)

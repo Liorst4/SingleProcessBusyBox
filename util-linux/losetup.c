@@ -182,6 +182,6 @@ int losetup_main(int argc UNUSED_PARAM, char **argv)
 	 * read(5, "0\n", 4096)                    = 2
 	 */
 
-	bb_show_usage(); /* does not return */
-	/*return EXIT_FAILURE;*/
+	bb_show_usage();
+	return EXIT_FAILURE;
 }

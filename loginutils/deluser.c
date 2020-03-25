@@ -159,4 +159,5 @@ int deluser_main(int argc, char **argv)
 	}
 	/* Reached only if number of command line args is wrong */
 	bb_show_usage();
+	return EXIT_FAILURE;
 }

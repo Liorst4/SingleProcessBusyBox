@@ -390,6 +390,7 @@ int ipneigh_main(int argc UNUSED_PARAM, char **argv)
 static int FAST_FUNC ip_print_help(char **argv UNUSED_PARAM)
 {
 	bb_show_usage();
+	return -1;
 }
 
 int ip_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
