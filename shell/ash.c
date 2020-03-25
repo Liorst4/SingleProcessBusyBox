@@ -5301,7 +5301,7 @@ forkparent(struct job *jp, union node *n, int mode, pid_t pid)
 
 /* jp and n are NULL when called by openhere() for heredoc support */
 static int
-forkshell(struct job *jp, union node *n, int mode)
+forkshell(struct job *jp UNUSED_PARAM, union node *n UNUSED_PARAM, int mode UNUSED_PARAM)
 {
   full_write2_str("ash tried to fork. nothing happend\n");
   return 0;
