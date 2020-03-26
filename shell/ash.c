@@ -186,6 +186,7 @@
 #else
 # define NUM_SCRIPTS 0
 #endif
+#include "common_bufsiz.h"
 
 /* So far, all bash compat is controlled by one config option */
 /* Separate defines document which part of code implements what */
@@ -8091,6 +8092,7 @@ static void
 tryexec(IF_FEATURE_SH_STANDALONE(int applet_no,) const char *cmd, char **argv, char **envp)
 {
 #if ENABLE_FEATURE_SH_STANDALONE
+	memset(bb_common_bufsiz1, 0, COMMON_BUFSIZE);
 	if (applet_no >= 0) {
 		if (APPLET_IS_NOEXEC(applet_no)) {
 			clearenv();
