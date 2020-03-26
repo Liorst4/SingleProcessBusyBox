@@ -267,5 +267,5 @@ int head_main(int argc, char **argv)
 		fmt = header_fmt_str;
 	} while (*++argv);
 
-	fflush_stdout_and_exit(retval);
+	fflush(stdout);
 }
