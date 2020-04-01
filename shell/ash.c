@@ -500,6 +500,7 @@ extern struct globals_misc *BB_GLOBAL_CONST ash_ptr_to_globals_misc;
 	trap_ptr = trap; \
 } while (0)
 
+static jmp_buf applet_exit_buf;
 
 /* ============ DEBUG */
 #if DEBUG
@@ -8088,6 +8089,14 @@ static struct tblentry **cmdtable;
 static int builtinloc = -1;     /* index in path of %builtin, or -1 */
 
 
+static void applet_at_exit(void)
+{
+  const char null_buffer[sizeof(applet_exit_buf)] = {0};
+  if (0 != memcmp(null_buffer, &applet_exit_buf, sizeof(applet_exit_buf))) {
+    longjmp(applet_exit_buf, 1);
+  }
+}
+
 static void
 tryexec(IF_FEATURE_SH_STANDALONE(int applet_no,) const char *cmd, char **argv, char **envp)
 {
@@ -8099,7 +8108,13 @@ tryexec(IF_FEATURE_SH_STANDALONE(int applet_no,) const char *cmd, char **argv, c
 			while (*envp)
 				putenv(*envp++);
 			popredir(/*drop:*/ 1);
-			run_noexec_applet_and_exit(applet_no, cmd, argv);
+			atexit(applet_at_exit);
+			if (setjmp(applet_exit_buf) == 0) {
+			    run_noexec_applet_and_exit(applet_no, cmd, argv);
+			} else {
+			    full_write2_str("applet tried to exit\n");
+			}
+			memset(&applet_exit_buf, 0, sizeof(applet_exit_buf));
 		}
 		else {
 		  full_write2_str("applet does not support NOEXEC\n");
@@ -14372,6 +14387,8 @@ int ash_main(int argc UNUSED_PARAM, char **argv)
 	struct jmploc jmploc;
 	struct stackmark smark;
 	int login_sh;
+
+	memset(&applet_exit_buf, 0, sizeof(applet_exit_buf));
 
 	/* Initialize global data */
 	INIT_G_misc();
