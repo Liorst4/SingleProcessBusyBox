@@ -9478,13 +9478,18 @@ evalpipe(union node *n, int flags)
 
         stdin_backup = dup(STDIN_FILENO);
         if (-1 == stdin_backup) {
+	  TRACE(("evalpipe: failed to dup STDIN_FILENO: %d\n", errno));
 	  return errno;
         }
+	TRACE(("evalpipe: stdin_backup: %d\n", stdin_backup));
+
         stdout_backup = dup(STDOUT_FILENO);
         if (-1 == stdout_backup) {
+	  TRACE(("evalpipe: failed to dup STDOUT_FILENO: %d\n", errno));
 	  status = errno;
 	  goto cleanup;
         }
+	TRACE(("evalpipe: stdout_backup: %d\n", stdout_backup));
 
 	INT_OFF;
 	if (n->npipe.pipe_backgnd == 0)
@@ -9497,17 +9502,28 @@ evalpipe(union node *n, int flags)
 		prehash(lp->n);
 		INT_ON;
 
+		if (first) {
+		  TRACE(("evalpipe: pipe loop: First iteration\n"));
+		}
+		if (last) {
+		  TRACE(("evalpipe: pipe loop: Last iteration\n"));
+		}
+
 		if (!last) {
 		    // Create stdout for this command and stdin for the next command.
 		    if (-1 == pipe2(current_pipe_pair, O_NONBLOCK)) {
 		      status = errno;
+		      TRACE(("evalpipe: pipe loop: failed to create a new pipe %d\n", errno));
 		      goto cleanup;
 		    }
+		    TRACE(("evalpipe: pipe loop: Created a new pipe read: %d write: %d\n", current_pipe_pair[PIPE_READ_END], current_pipe_pair[PIPE_WRITE_END]));
 		}
 
 		if (!first) {
+		  TRACE(("evalpipe: pipe loop: Dup-ing last pipe pair read end %d into STDIN_FILENO\n", last_pipe_pair[PIPE_READ_END], STDIN_FILENO));
 		  // Use pipe from previous command as stdin.
                   if (-1 == dup2(last_pipe_pair[PIPE_READ_END], STDIN_FILENO)) {
+		    TRACE(("evalpipe: pipe loop: failed to dup pipe read end %d into STDIN_FILENO %d %d\n", last_pipe_pair[PIPE_READ_END], STDIN_FILENO, errno));
 		    status = errno;
 		    goto cleanup;
                   }
@@ -9517,15 +9533,20 @@ evalpipe(union node *n, int flags)
 		{
 		    // Update stdout.
 		    const int current_stdout = (!last) ? current_pipe_pair[PIPE_WRITE_END] : stdout_backup;
+		    TRACE(("evalpipe: pipe loop: dup-ing fd %d in STDOUT_FILENO %d\n", current_stdout, STDOUT_FILENO));
 		    if (-1 == dup2(current_stdout, STDOUT_FILENO)) {
+		      TRACE(("evalpipe: pipeloop: dup failed %d\n", errno));
 		      status = errno;
 		      goto cleanup;
 		    }
 		}
 
+		TRACE(("evalpipe: pipe loop: Running command\n"));
 		evaltree(lp->n, flags);
+		TRACE(("evalpipe: pipe loop: Command done\n"));
 
 		if (!first) {
+		    TRACE(("evalpipe: pipe loop: closing %d and %d\n", last_pipe_pair[PIPE_READ_END], last_pipe_pair[PIPE_WRITE_END]));
 		    close(last_pipe_pair[PIPE_READ_END]);
 		    close(last_pipe_pair[PIPE_WRITE_END]);
 		    if (last) {
@@ -9534,6 +9555,7 @@ evalpipe(union node *n, int flags)
 		    }
                 }
 		if (!last) {
+		  TRACE(("evalpipe: pipe loop: last_pipe_pair %d,%d <- current_pipe_pair %d,%d\n", last_pipe_pair[PIPE_READ_END], last_pipe_pair[PIPE_WRITE_END], current_pipe_pair[PIPE_READ_END], current_pipe_pair[PIPE_WRITE_END]));
 		    last_pipe_pair[PIPE_READ_END] = current_pipe_pair[PIPE_READ_END];
 		    last_pipe_pair[PIPE_WRITE_END] = current_pipe_pair[PIPE_WRITE_END];
 		}
@@ -9543,20 +9565,26 @@ evalpipe(union node *n, int flags)
 
  cleanup:
 	if (-1 != last_pipe_pair[PIPE_READ_END]) {
+	  TRACE(("evalpipe: closing last command read end %d\n", last_pipe_pair[PIPE_READ_END]));
 	  close(last_pipe_pair[PIPE_READ_END]);
 	}
 
 	if (-1 != last_pipe_pair[PIPE_WRITE_END]) {
+	  TRACE(("evalpipe: closing last command write end %d\n", last_pipe_pair[PIPE_WRITE_END]));
 	  close(last_pipe_pair[PIPE_WRITE_END]);
 	}
 
 	if (-1 != stdout_backup) {
+	  TRACE(("evalpipe: dup-ing stdout_backup %d to STDOUT_FILENO %d", stdout_backup, STDOUT_FILENO));
 	  dup2(stdout_backup, STDOUT_FILENO); // Not much we can do if it fails.
+	  TRACE(("evalpipe: Closing stdout_backup %d\n", stdout_backup));
 	  close(stdout_backup);
 	}
 
 	if (-1 != stdin_backup) {
+	  TRACE(("evalpipe: dup-ing stdin_backup %d to STDIN_FILENO %d", stdin_backup, STDIN_FILENO));
 	  dup2(stdin_backup, STDIN_FILENO); // Not much we can do if it fails.
+	  TRACE(("evalpipe: Closing stdin_backup %d\n", stdin_backup));
 	  close(stdin_backup);
 	}
 
