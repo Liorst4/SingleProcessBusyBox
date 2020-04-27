@@ -9521,12 +9521,15 @@ evalpipe(union node *n, int flags)
 
 		if (!first) {
 		  TRACE(("evalpipe: pipe loop: Dup-ing last pipe pair read end %d into STDIN_FILENO\n", last_pipe_pair[PIPE_READ_END], STDIN_FILENO));
+		  fclose(stdin); // Closing to get rid of any unread data from previous command.
+		  stdin = NULL;
 		  // Use pipe from previous command as stdin.
                   if (-1 == dup2(last_pipe_pair[PIPE_READ_END], STDIN_FILENO)) {
 		    TRACE(("evalpipe: pipe loop: failed to dup pipe read end %d into STDIN_FILENO %d %d\n", last_pipe_pair[PIPE_READ_END], STDIN_FILENO, errno));
 		    status = errno;
 		    goto cleanup;
                   }
+		  stdin = fdopen(STDIN_FILENO, "rb");
 		}
 
 
@@ -9586,6 +9589,9 @@ evalpipe(union node *n, int flags)
 	  dup2(stdin_backup, STDIN_FILENO); // Not much we can do if it fails.
 	  TRACE(("evalpipe: Closing stdin_backup %d\n", stdin_backup));
 	  close(stdin_backup);
+	  if (NULL == stdin) {
+	    stdin = fdopen(STDIN_FILENO, "rb");
+	  }
 	}
 
         return status;
