@@ -1106,7 +1106,7 @@ int main(int argc UNUSED_PARAM, char **argv)
 	if (argv[1] && is_prefixed_with(bb_basename(argv[0]), "busybox"))
 		argv++;
 # endif
-	applet_name = argv[0];
+	applet_name = "ash";
 	if (applet_name[0] == '-')
 		applet_name++;
 	applet_name = bb_basename(applet_name);
