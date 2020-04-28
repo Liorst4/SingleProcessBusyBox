@@ -268,4 +268,5 @@ int head_main(int argc, char **argv)
 	} while (*++argv);
 
 	fflush(stdout);
+	exit(retval);
 }

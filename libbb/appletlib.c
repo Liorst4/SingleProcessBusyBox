@@ -165,6 +165,7 @@ void FAST_FUNC bb_show_usage(void)
 		if (ENABLE_FEATURE_CLEAN_UP)
 			dealloc_usage_messages((char*)usage_string);
 #endif
+		xfunc_die();
 	}
 }
 
@@ -753,7 +754,7 @@ static void install_links(const char *busybox UNUSED_PARAM,
 }
 # endif
 
-static void run_applet_and_exit(const char *name, char **argv);
+static void run_applet_and_exit(const char *name, char **argv) NORETURN;
 
 # if NUM_SCRIPTS > 0
 static int find_script_by_name(const char *name)
@@ -955,7 +956,6 @@ int busybox_main(int argc UNUSED_PARAM, char **argv)
 	 * "#!/bin/busybox"-style wrappers */
 	applet_name = bb_get_last_path_component_nostrip(argv[0]);
 	run_applet_and_exit(applet_name, argv);
-	return 0;
 }
 # endif
 
@@ -1014,7 +1014,6 @@ static void run_applet_and_exit(const char *name, char **argv)
 		int applet = find_applet_by_name(name);
 		if (applet >= 0)
 			run_applet_no_and_exit(applet, name, argv);
-		return;
 	}
 #  endif
 
@@ -1022,7 +1021,7 @@ static void run_applet_and_exit(const char *name, char **argv)
 	full_write2_str(applet_name);
 	full_write2_str(": applet not found\n");
 	/* POSIX: "If a command is not found, the exit status shall be 127" */
-	return;
+	exit(127);
 }
 # endif
 

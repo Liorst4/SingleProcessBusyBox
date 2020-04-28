@@ -107,7 +107,6 @@ static unsigned find_cmd(const char *s)
 			return n;
 	}
 	bb_show_usage();
-	return 0;
 }
 
 int blockdev_main(int argc, char **argv) MAIN_EXTERNALLY_VISIBLE;
