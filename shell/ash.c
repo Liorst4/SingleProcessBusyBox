@@ -186,6 +186,7 @@
 #else
 # define NUM_SCRIPTS 0
 #endif
+#include "common_bufsiz.h"
 
 /* So far, all bash compat is controlled by one config option */
 /* Separate defines document which part of code implements what */
@@ -499,6 +500,7 @@ extern struct globals_misc *BB_GLOBAL_CONST ash_ptr_to_globals_misc;
 	trap_ptr = trap; \
 } while (0)
 
+static jmp_buf applet_exit_buf;
 
 /* ============ DEBUG */
 #if DEBUG
@@ -5301,25 +5303,10 @@ forkparent(struct job *jp, union node *n, int mode, pid_t pid)
 
 /* jp and n are NULL when called by openhere() for heredoc support */
 static int
-forkshell(struct job *jp, union node *n, int mode)
+forkshell(struct job *jp UNUSED_PARAM, union node *n UNUSED_PARAM, int mode UNUSED_PARAM)
 {
-	int pid;
-
-	TRACE(("forkshell(%%%d, %p, %d) called\n", jobno(jp), n, mode));
-	pid = fork();
-	if (pid < 0) {
-		TRACE(("Fork failed, errno=%d", errno));
-		if (jp)
-			freejob(jp);
-		ash_msg_and_raise_perror("can't fork");
-	}
-	if (pid == 0) {
-		CLEAR_RANDOM_T(&random_gen); /* or else $RANDOM repeats in child */
-		forkchild(jp, n, mode);
-	} else {
-		forkparent(jp, n, mode, pid);
-	}
-	return pid;
+  full_write2_str("ash tried to fork. nothing happend\n");
+  return 0;
 }
 
 /*
@@ -8102,60 +8089,38 @@ static struct tblentry **cmdtable;
 static int builtinloc = -1;     /* index in path of %builtin, or -1 */
 
 
+static void applet_at_exit(void)
+{
+  const char null_buffer[sizeof(applet_exit_buf)] = {0};
+  if (0 != memcmp(null_buffer, &applet_exit_buf, sizeof(applet_exit_buf))) {
+    longjmp(applet_exit_buf, 1);
+  }
+}
+
 static void
 tryexec(IF_FEATURE_SH_STANDALONE(int applet_no,) const char *cmd, char **argv, char **envp)
 {
 #if ENABLE_FEATURE_SH_STANDALONE
+	memset(bb_common_bufsiz1, 0, COMMON_BUFSIZE);
 	if (applet_no >= 0) {
 		if (APPLET_IS_NOEXEC(applet_no)) {
 			clearenv();
 			while (*envp)
 				putenv(*envp++);
 			popredir(/*drop:*/ 1);
-			run_noexec_applet_and_exit(applet_no, cmd, argv);
+			atexit(applet_at_exit);
+			if (setjmp(applet_exit_buf) == 0) {
+			    run_noexec_applet_and_exit(applet_no, cmd, argv);
+			} else {
+			    full_write2_str("applet tried to exit\n");
+			}
+			memset(&applet_exit_buf, 0, sizeof(applet_exit_buf));
 		}
-		/* re-exec ourselves with the new arguments */
-		execve(bb_busybox_exec_path, argv, envp);
-		/* If they called chroot or otherwise made the binary no longer
-		 * executable, fall through */
+		else {
+		  full_write2_str("applet does not support NOEXEC\n");
+		}
 	}
 #endif
-
- repeat:
-#ifdef SYSV
-	do {
-		execve(cmd, argv, envp);
-	} while (errno == EINTR);
-#else
-	execve(cmd, argv, envp);
-#endif
-
-	if (cmd != bb_busybox_exec_path && errno == ENOEXEC) {
-		/* Run "cmd" as a shell script:
-		 * http://pubs.opengroup.org/onlinepubs/9699919799/utilities/V3_chap02.html
-		 * "If the execve() function fails with ENOEXEC, the shell
-		 * shall execute a command equivalent to having a shell invoked
-		 * with the command name as its first operand,
-		 * with any remaining arguments passed to the new shell"
-		 *
-		 * That is, do not use $SHELL, user's shell, or /bin/sh;
-		 * just call ourselves.
-		 *
-		 * Note that bash reads ~80 chars of the file, and if it sees
-		 * a zero byte before it sees newline, it doesn't try to
-		 * interpret it, but fails with "cannot execute binary file"
-		 * message and exit code 126. For one, this prevents attempts
-		 * to interpret foreign ELF binaries as shell scripts.
-		 */
-		argv[0] = (char*) cmd;
-		cmd = bb_busybox_exec_path;
-		/* NB: this is only possible because all callers of shellexec()
-		 * ensure that the argv[-1] slot exists!
-		 */
-		argv--;
-		argv[0] = (char*) "ash";
-		goto repeat;
-	}
 }
 
 /*
@@ -8163,7 +8128,6 @@ tryexec(IF_FEATURE_SH_STANDALONE(int applet_no,) const char *cmd, char **argv, c
  * have to change the find_command routine as well.
  * argv[-1] must exist and be writable! See tryexec() for why.
  */
-static void shellexec(char *prog, char **argv, const char *path, int idx) NORETURN;
 static void shellexec(char *prog, char **argv, const char *path, int idx)
 {
 	char *cmdname;
@@ -8179,16 +8143,9 @@ static void shellexec(char *prog, char **argv, const char *path, int idx)
 #endif
 	) {
 		tryexec(IF_FEATURE_SH_STANDALONE(applet_no,) prog, argv, envp);
-		if (applet_no >= 0) {
-			/* We tried execing ourself, but it didn't work.
-			 * Maybe /proc/self/exe doesn't exist?
-			 * Try $PATH search.
-			 */
-			goto try_PATH;
-		}
 		e = errno;
+		return;
 	} else {
- try_PATH:
 		e = ENOENT;
 		while (padvance(&path, argv[0]) >= 0) {
 			cmdname = stackblock();
@@ -8215,7 +8172,6 @@ static void shellexec(char *prog, char **argv, const char *path, int idx)
 	exitstatus = exerrno;
 	TRACE(("shellexec failed for %s, errno %d, suppress_int %d\n",
 		prog, e, suppress_int));
-	ash_msg_and_raise(EXEND, "%s: %s", prog, errmsg(e, "not found"));
 	/* NOTREACHED */
 }
 
@@ -9505,64 +9461,143 @@ expredir(union node *n)
 static int
 evalpipe(union node *n, int flags)
 {
-	struct job *jp;
+#define PIPE_READ_END 0
+#define PIPE_WRITE_END 1
+
 	struct nodelist *lp;
-	int pipelen;
-	int prevfd;
-	int pip[2];
-	int status = 0;
+        int last_pipe_pair[2] = {-1, -1};
+        int stdin_backup = -1;
+        int stdout_backup = -1;
+        int status = 0;
 
 	TRACE(("evalpipe(0x%lx) called\n", (long)n));
-	pipelen = 0;
-	for (lp = n->npipe.cmdlist; lp; lp = lp->next)
-		pipelen++;
-	flags |= EV_EXIT;
+
+	if (NULL == n->npipe.cmdlist->next) {
+	  return EINVAL;
+	}
+
+        stdin_backup = dup(STDIN_FILENO);
+        if (-1 == stdin_backup) {
+	  TRACE(("evalpipe: failed to dup STDIN_FILENO: %d\n", errno));
+	  return errno;
+        }
+	TRACE(("evalpipe: stdin_backup: %d\n", stdin_backup));
+
+        stdout_backup = dup(STDOUT_FILENO);
+        if (-1 == stdout_backup) {
+	  TRACE(("evalpipe: failed to dup STDOUT_FILENO: %d\n", errno));
+	  status = errno;
+	  goto cleanup;
+        }
+	TRACE(("evalpipe: stdout_backup: %d\n", stdout_backup));
+
 	INT_OFF;
 	if (n->npipe.pipe_backgnd == 0)
 		get_tty_state();
-	jp = makejob(/*n,*/ pipelen);
-	prevfd = -1;
-	for (lp = n->npipe.cmdlist; lp; lp = lp->next) {
+
+        for (lp = n->npipe.cmdlist; lp; lp = lp->next) {
+		const int first = (lp == n->npipe.cmdlist);
+		const int last = (NULL == lp->next);
+		int current_pipe_pair[2] = {-1, -1};
 		prehash(lp->n);
-		pip[1] = -1;
-		if (lp->next) {
-			if (pipe(pip) < 0) {
-				close(prevfd);
-				ash_msg_and_raise_perror("can't create pipe");
-			}
+		INT_ON;
+
+		if (first) {
+		  TRACE(("evalpipe: pipe loop: First iteration\n"));
 		}
-		if (forkshell(jp, lp->n, n->npipe.pipe_backgnd) == 0) {
-			/* child */
-			INT_ON;
-			if (pip[1] >= 0) {
-				close(pip[0]);
-			}
-			if (prevfd > 0) {
-				dup2(prevfd, 0);
-				close(prevfd);
-			}
-			if (pip[1] > 1) {
-				dup2(pip[1], 1);
-				close(pip[1]);
-			}
-			evaltreenr(lp->n, flags);
-			/* never returns */
+		if (last) {
+		  TRACE(("evalpipe: pipe loop: Last iteration\n"));
 		}
-		/* parent */
-		if (prevfd >= 0)
-			close(prevfd);
-		prevfd = pip[0];
-		/* Don't want to trigger debugging */
-		if (pip[1] != -1)
-			close(pip[1]);
-	}
-	if (n->npipe.pipe_backgnd == 0) {
-		status = waitforjob(jp);
-		TRACE(("evalpipe:  job done exit status %d\n", status));
-	}
+
+		if (!last) {
+		    // Create stdout for this command and stdin for the next command.
+		    if (-1 == pipe2(current_pipe_pair, O_NONBLOCK)) {
+		      status = errno;
+		      TRACE(("evalpipe: pipe loop: failed to create a new pipe %d\n", errno));
+		      goto cleanup;
+		    }
+		    TRACE(("evalpipe: pipe loop: Created a new pipe read: %d write: %d\n", current_pipe_pair[PIPE_READ_END], current_pipe_pair[PIPE_WRITE_END]));
+		}
+
+		if (!first) {
+		  TRACE(("evalpipe: pipe loop: Dup-ing last pipe pair read end %d into STDIN_FILENO\n", last_pipe_pair[PIPE_READ_END], STDIN_FILENO));
+		  fclose(stdin); // Closing to get rid of any unread data from previous command.
+		  stdin = NULL;
+		  // Use pipe from previous command as stdin.
+                  if (-1 == dup2(last_pipe_pair[PIPE_READ_END], STDIN_FILENO)) {
+		    TRACE(("evalpipe: pipe loop: failed to dup pipe read end %d into STDIN_FILENO %d %d\n", last_pipe_pair[PIPE_READ_END], STDIN_FILENO, errno));
+		    status = errno;
+		    goto cleanup;
+                  }
+		  stdin = fdopen(STDIN_FILENO, "rb");
+		}
+
+
+		{
+		    // Update stdout.
+		    const int current_stdout = (!last) ? current_pipe_pair[PIPE_WRITE_END] : stdout_backup;
+		    TRACE(("evalpipe: pipe loop: dup-ing fd %d in STDOUT_FILENO %d\n", current_stdout, STDOUT_FILENO));
+		    if (-1 == dup2(current_stdout, STDOUT_FILENO)) {
+		      TRACE(("evalpipe: pipeloop: dup failed %d\n", errno));
+		      status = errno;
+		      goto cleanup;
+		    }
+		}
+
+		TRACE(("evalpipe: pipe loop: Running command\n"));
+		evaltree(lp->n, flags);
+		TRACE(("evalpipe: pipe loop: Command done\n"));
+
+		if (!first) {
+		    TRACE(("evalpipe: pipe loop: closing %d and %d\n", last_pipe_pair[PIPE_READ_END], last_pipe_pair[PIPE_WRITE_END]));
+		    close(last_pipe_pair[PIPE_READ_END]);
+		    close(last_pipe_pair[PIPE_WRITE_END]);
+		    if (last) {
+		      last_pipe_pair[PIPE_READ_END] = -1;
+		      last_pipe_pair[PIPE_WRITE_END] = -1;
+		    }
+                }
+		if (!last) {
+		  TRACE(("evalpipe: pipe loop: last_pipe_pair %d,%d <- current_pipe_pair %d,%d\n", last_pipe_pair[PIPE_READ_END], last_pipe_pair[PIPE_WRITE_END], current_pipe_pair[PIPE_READ_END], current_pipe_pair[PIPE_WRITE_END]));
+		    last_pipe_pair[PIPE_READ_END] = current_pipe_pair[PIPE_READ_END];
+		    last_pipe_pair[PIPE_WRITE_END] = current_pipe_pair[PIPE_WRITE_END];
+		}
+        }
 	INT_ON;
 
-	return status;
+
+ cleanup:
+	if (-1 != last_pipe_pair[PIPE_READ_END]) {
+	  TRACE(("evalpipe: closing last command read end %d\n", last_pipe_pair[PIPE_READ_END]));
+	  close(last_pipe_pair[PIPE_READ_END]);
+	}
+
+	if (-1 != last_pipe_pair[PIPE_WRITE_END]) {
+	  TRACE(("evalpipe: closing last command write end %d\n", last_pipe_pair[PIPE_WRITE_END]));
+	  close(last_pipe_pair[PIPE_WRITE_END]);
+	}
+
+	if (-1 != stdout_backup) {
+	  TRACE(("evalpipe: dup-ing stdout_backup %d to STDOUT_FILENO %d", stdout_backup, STDOUT_FILENO));
+	  dup2(stdout_backup, STDOUT_FILENO); // Not much we can do if it fails.
+	  TRACE(("evalpipe: Closing stdout_backup %d\n", stdout_backup));
+	  close(stdout_backup);
+	}
+
+	if (-1 != stdin_backup) {
+	  TRACE(("evalpipe: dup-ing stdin_backup %d to STDIN_FILENO %d", stdin_backup, STDIN_FILENO));
+	  dup2(stdin_backup, STDIN_FILENO); // Not much we can do if it fails.
+	  TRACE(("evalpipe: Closing stdin_backup %d\n", stdin_backup));
+	  close(stdin_backup);
+	  if (NULL == stdin) {
+	    stdin = fdopen(STDIN_FILENO, "rb");
+	  }
+	}
+
+        return status;
+
+#undef PIPE_READ_END
+#undef PIPE_WRITE_END
 }
 
 /* setinteractive needs this forward reference */
@@ -9897,7 +9932,7 @@ execcmd(int argc UNUSED_PARAM, char **argv)
 		if (optionarg)
 			argv[0] = optionarg;
 		shellexec(prog, argv, pathval(), 0);
-		/* NOTREACHED */
+		return 0;
 	}
 	return 0;
 }
@@ -10375,7 +10410,7 @@ evalcommand(union node *cmd, int flags)
 			/* fall through to exec'ing external program */
 		}
 		shellexec(argv[0], argv, path, cmdentry.u.index);
-		/* NOTREACHED */
+		return 0;
 	} /* default */
 	case CMDBUILTIN:
 		if (evalbltin(cmdentry.u.cmd, argc, argv, flags)
@@ -14386,6 +14421,8 @@ int ash_main(int argc UNUSED_PARAM, char **argv)
 	struct jmploc jmploc;
 	struct stackmark smark;
 	int login_sh;
+
+	memset(&applet_exit_buf, 0, sizeof(applet_exit_buf));
 
 	/* Initialize global data */
 	INIT_G_misc();

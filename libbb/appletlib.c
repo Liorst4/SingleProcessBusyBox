@@ -165,8 +165,8 @@ void FAST_FUNC bb_show_usage(void)
 		if (ENABLE_FEATURE_CLEAN_UP)
 			dealloc_usage_messages((char*)usage_string);
 #endif
+		xfunc_die();
 	}
-	xfunc_die();
 }
 
 int FAST_FUNC find_applet_by_name(const char *name)
@@ -990,18 +990,19 @@ void FAST_FUNC run_applet_no_and_exit(int applet_no, const char *name, char **ar
 			/* Make "foo --help" exit with 0: */
 			xfunc_error_retval = 0;
 			bb_show_usage();
+			return;
 		}
 	}
 	if (ENABLE_FEATURE_SUID)
 		check_suid(applet_no);
 	xfunc_error_retval = applet_main[applet_no](argc, argv);
 	/* Note: applet_main() may also not return (die on a xfunc or such) */
-	xfunc_die();
+	return;
 }
 # endif /* NUM_APPLETS > 0 */
 
 # if ENABLE_BUSYBOX || NUM_APPLETS > 0
-static NORETURN void run_applet_and_exit(const char *name, char **argv)
+static void run_applet_and_exit(const char *name, char **argv)
 {
 #  if ENABLE_BUSYBOX
 	if (is_prefixed_with(name, "busybox"))
@@ -1105,7 +1106,7 @@ int main(int argc UNUSED_PARAM, char **argv)
 	if (argv[1] && is_prefixed_with(bb_basename(argv[0]), "busybox"))
 		argv++;
 # endif
-	applet_name = argv[0];
+	applet_name = "ash";
 	if (applet_name[0] == '-')
 		applet_name++;
 	applet_name = bb_basename(applet_name);
